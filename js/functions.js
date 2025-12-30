@@ -13,7 +13,7 @@ const MathFunctions = {
         evaluate: (x, params) => x,
         getYRange: (xMin, xMax, params) => ({ yMin: xMin, yMax: xMax })
     },
-    
+
     linearCustom: {
         name: 'Linear (Custom)',
         formula: 'y = mx + b',
@@ -42,7 +42,7 @@ const MathFunctions = {
             return { yMin: 0, yMax: absMax * absMax };
         }
     },
-    
+
     cubic: {
         name: 'Cubic',
         formula: 'y = x³',
@@ -55,7 +55,7 @@ const MathFunctions = {
             return { yMin: Math.min(y1, y2), yMax: Math.max(y1, y2) };
         }
     },
-    
+
     quadraticFull: {
         name: 'Quadratic (Full)',
         formula: 'y = ax² + bx + c',
@@ -86,7 +86,7 @@ const MathFunctions = {
         evaluate: (x, params) => Math.sin(x),
         getYRange: (xMin, xMax, params) => ({ yMin: -1.2, yMax: 1.2 })
     },
-    
+
     cos: {
         name: 'Cosine',
         formula: 'y = cos(x)',
@@ -95,7 +95,7 @@ const MathFunctions = {
         evaluate: (x, params) => Math.cos(x),
         getYRange: (xMin, xMax, params) => ({ yMin: -1.2, yMax: 1.2 })
     },
-    
+
     tan: {
         name: 'Tangent',
         formula: 'y = tan(x)',
@@ -121,7 +121,7 @@ const MathFunctions = {
             return { yMin: 0, yMax: Math.sqrt(Math.max(0, xMax)) + 0.5 };
         }
     },
-    
+
     abs: {
         name: 'Absolute Value',
         formula: 'y = |x|',
@@ -133,7 +133,7 @@ const MathFunctions = {
             return { yMin: 0, yMax: absMax };
         }
     },
-    
+
     reciprocal: {
         name: 'Reciprocal',
         formula: 'y = 1/x',
@@ -146,21 +146,20 @@ const MathFunctions = {
         },
         getYRange: (xMin, xMax, params) => ({ yMin: -10, yMax: 10 })
     },
-    
+
     exp: {
         name: 'Exponential',
         formula: 'y = eˣ',
         description: 'Exponential growth - lines spread dramatically for positive x, compress for negative',
         params: {},
         evaluate: (x, params) => {
-            const val = Math.exp(x);
-            return Math.min(100, val);
+            return Math.exp(x);
         },
         getYRange: (xMin, xMax, params) => {
-            return { yMin: 0, yMax: Math.min(100, Math.exp(xMax)) };
+            return { yMin: 0, yMax: Math.exp(xMax) };
         }
     },
-    
+
     log: {
         name: 'Natural Log',
         formula: 'y = ln(x)',
@@ -169,9 +168,9 @@ const MathFunctions = {
         evaluate: (x, params) => x > 0 ? Math.log(x) : NaN,
         getYRange: (xMin, xMax, params) => {
             const effectiveMin = Math.max(0.01, xMin);
-            return { 
-                yMin: Math.log(effectiveMin), 
-                yMax: Math.log(Math.max(0.01, xMax)) 
+            return {
+                yMin: Math.log(effectiveMin),
+                yMax: Math.log(Math.max(0.01, xMax))
             };
         }
     }
@@ -181,9 +180,9 @@ const MathFunctions = {
 function getFormattedFormula(funcKey, params) {
     const func = MathFunctions[funcKey];
     if (!func) return '';
-    
+
     let formula = func.formula;
-    
+
     // Replace parameter placeholders with actual values
     if (params) {
         for (const [key, value] of Object.entries(params)) {
@@ -200,7 +199,7 @@ function getFormattedFormula(funcKey, params) {
             }
         }
     }
-    
+
     return formula;
 }
 

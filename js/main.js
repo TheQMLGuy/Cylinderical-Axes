@@ -30,6 +30,7 @@ class ParallelAxesVisualizer {
         this.showPoints = true;
         this.continuousMode = false;
         this.ySquash = 0; // 0 = Y matches X range, 100 = Y auto-fits to function range
+        this.densityVicinity = 0.5; // ± range for density calculation
 
         // Layout
         this.padding = { top: 60, bottom: 60, left: 80, right: 80 };
@@ -128,18 +129,40 @@ class ParallelAxesVisualizer {
             this.render();
         });
 
-        // Y Squash toggle button
+        // Y Squash toggle button (3 states)
+        // 0: Standard (1:1)
+        // 1: Fit Min/Max (tight fit)
+        // 2: Symmetric Fit (balanced 0)
         const ySquashBtn = document.getElementById('ySquashBtn');
         if (ySquashBtn) {
             ySquashBtn.addEventListener('click', () => {
-                this.ySquash = this.ySquash === 0 ? 100 : 0;
-                ySquashBtn.classList.toggle('active', this.ySquash === 100);
-                ySquashBtn.innerHTML = this.ySquash === 100
-                    ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg> Y Fitted'
-                    : '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13"/></svg> Fit Y to All Values';
+                this.ySquash = (this.ySquash + 1) % 3;
+
+                // Update Button State
+                ySquashBtn.classList.remove('btn-secondary', 'active', 'btn-symmetric');
+                ySquashBtn.style.backgroundColor = ''; // Clear inline styles
+                ySquashBtn.style.borderColor = '';
+
+                if (this.ySquash === 0) {
+                    ySquashBtn.classList.add('btn-secondary');
+                    ySquashBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13"/></svg> Standard Scale (1:1)';
+                } else if (this.ySquash === 1) {
+                    ySquashBtn.classList.add('active');
+                    ySquashBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg> Fit Y to Min/Max';
+                } else {
+                    ySquashBtn.classList.add('active');
+                    ySquashBtn.style.backgroundColor = '#a855f7'; // Purple for symmetric
+                    ySquashBtn.style.borderColor = '#9333ea';
+                    ySquashBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a.75.75 0 01.75.75v14.5a.75.75 0 01-1.5 0V.75A.75.75 0 018 0zM1 8a.75.75 0 01.75-.75h12.5a.75.75 0 010 1.5H1.75A.75.75 0 011 8z"/></svg> Symmetric Fit';
+                }
+
                 this.calculateDataPoints();
                 this.render();
             });
+
+            // Initialize button state
+            ySquashBtn.classList.add('btn-secondary');
+            ySquashBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13"/></svg> Standard Scale (1:1)';
         }
 
         // Animation controls
@@ -179,9 +202,23 @@ class ParallelAxesVisualizer {
             });
         }
 
-        // Mouse events for hover
+        // Density vicinity slider
+        const densitySlider = document.getElementById('densityVicinity');
+        if (densitySlider) {
+            densitySlider.addEventListener('input', (e) => {
+                this.densityVicinity = parseFloat(e.target.value);
+                document.getElementById('densityVicinityValue').textContent = this.densityVicinity.toFixed(1);
+                this.render();
+            });
+        }
+
+        // Mouse events for hover - parallel axes
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
         this.canvas.addEventListener('mouseleave', () => this.handleMouseLeave());
+
+        // Mouse events for hover - Cartesian (bidirectional)
+        this.cartesianCanvas.addEventListener('mousemove', (e) => this.handleCartesianMouseMove(e));
+        this.cartesianCanvas.addEventListener('mouseleave', () => this.handleMouseLeave());
     }
 
     loadFunctionParams() {
@@ -253,7 +290,10 @@ class ParallelAxesVisualizer {
         const rawPoints = [];
 
         for (let i = 0; i < actualNumPoints; i++) {
-            const x = this.xMin + i * step;
+            // Ensure we hit exactly xMin and xMax at the endpoints
+            const x = (i === 0) ? this.xMin :
+                (i === actualNumPoints - 1) ? this.xMax :
+                    this.xMin + i * step;
             const y = func.evaluate(x, this.params);
 
             if (!isNaN(y) && isFinite(y)) {
@@ -263,16 +303,26 @@ class ParallelAxesVisualizer {
             }
         }
 
-        // Calculate Y range based on squash setting (0 or 100%)
-        if (this.ySquash === 100) {
-            // SYMMETRIC Y range: balanced around 0
-            // Find the maximum absolute value needed to fit all y values
+        // Calculate Y range based on squash setting
+        if (this.ySquash === 1) {
+            // MODE 1: FIT ALL (Min/Max)
+            // Use actual min/max of function values so everything fits
+            this.yMin = actualYMin;
+            this.yMax = actualYMax;
+        } else if (this.ySquash === 2) {
+            // MODE 2: SYMMETRIC FIT
+            // Balanced around 0, good for seeing magnitude relative to 0
             const maxAbsY = Math.max(Math.abs(actualYMin), Math.abs(actualYMax));
-            // Symmetric range from -max to +max (no padding)
-            this.yMin = -maxAbsY;
-            this.yMax = maxAbsY;
+            if (maxAbsY === 0) {
+                this.yMin = -1;
+                this.yMax = 1;
+            } else {
+                this.yMin = -maxAbsY;
+                this.yMax = maxAbsY;
+            }
         } else {
-            // Base range: Y matches X range (1:1 scale)
+            // MODE 0: STANDARD (1:1 with X)
+            // Matches input X range
             this.yMin = this.xMin;
             this.yMax = this.xMax;
         }
@@ -281,6 +331,39 @@ class ParallelAxesVisualizer {
         for (const point of rawPoints) {
             const outOfRange = point.y < this.yMin || point.y > this.yMax;
             this.dataPoints.push({ ...point, outOfRange });
+        }
+
+        // Third pass: Calculate mathematical slopes for Y-axis coloring
+        // We calculate |dy/dx| and normalize it
+        let minSlope = Infinity;
+        let maxSlope = 0;
+
+        for (let i = 0; i < this.dataPoints.length; i++) {
+            let slope = 0;
+            const p = this.dataPoints[i];
+
+            // Use central difference where possible
+            if (i > 0 && i < this.dataPoints.length - 1) {
+                const prev = this.dataPoints[i - 1];
+                const next = this.dataPoints[i + 1];
+                slope = Math.abs((next.y - prev.y) / (next.x - prev.x));
+            } else if (i === 0 && this.dataPoints.length > 1) {
+                const next = this.dataPoints[i + 1];
+                slope = Math.abs((next.y - p.y) / (next.x - p.x));
+            } else if (i === this.dataPoints.length - 1 && this.dataPoints.length > 1) {
+                const prev = this.dataPoints[i - 1];
+                slope = Math.abs((p.y - prev.y) / (p.x - prev.x));
+            }
+
+            this.dataPoints[i].slope = slope;
+            minSlope = Math.min(minSlope, slope);
+            maxSlope = Math.max(maxSlope, slope);
+        }
+
+        // Normalize slopes (0 to 1)
+        const slopeRange = maxSlope - minSlope;
+        for (const point of this.dataPoints) {
+            point.normalizedSlope = slopeRange === 0 ? 0 : (point.slope - minSlope) / slopeRange;
         }
     }
 
@@ -595,7 +678,18 @@ class ParallelAxesVisualizer {
                 const yCanvasX = this.yToCanvas(point.y);
                 ctx.beginPath();
                 ctx.arc(yCanvasX, yAxisY, radius, 0, Math.PI * 2);
-                ctx.fillStyle = isHovered ? '#f472b6' : 'rgba(244, 114, 182, 0.8)';
+
+                // Color based on slope: Red (low slope) -> Green (high slope)
+                // Use normalized slope calculated in calculateDataPoints
+                let color;
+                if (isHovered) {
+                    color = '#f472b6'; // Keep pink for hover state to match selection
+                } else {
+                    // Interpolate between Red (#ef4444) and Green (#22c55e)
+                    color = this.interpolateColor('#ef4444', '#22c55e', point.normalizedSlope || 0);
+                }
+
+                ctx.fillStyle = color;
                 ctx.fill();
             }
         }
@@ -690,6 +784,49 @@ class ParallelAxesVisualizer {
         this.tooltip.classList.add('visible');
     }
 
+    // Handle mouse move on Cartesian canvas - bidirectional hover
+    handleCartesianMouseMove(e) {
+        const rect = this.cartesianCanvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const padding = { top: 40, bottom: 50, left: 60, right: 30 };
+        const plotWidth = this.cartWidth - padding.left - padding.right;
+        const plotHeight = this.cartHeight - padding.top - padding.bottom;
+
+        // Convert mouse position to data coordinates
+        const dataX = this.xMin + ((mouseX - padding.left) / plotWidth) * (this.xMax - this.xMin);
+        const dataY = this.yMin + ((this.cartHeight - padding.bottom - mouseY) / plotHeight) * (this.yMax - this.yMin);
+
+        // Find closest data point
+        let closestIndex = -1;
+        let closestDistance = Infinity;
+
+        for (let i = 0; i < this.dataPoints.length; i++) {
+            const point = this.dataPoints[i];
+            if (point.outOfRange) continue;
+
+            // Calculate distance in data space
+            const dist = Math.sqrt((point.x - dataX) ** 2 + (point.y - dataY) ** 2);
+
+            if (dist < closestDistance) {
+                closestDistance = dist;
+                closestIndex = i;
+            }
+        }
+
+        // Threshold in data units - about 5% of the range
+        const threshold = Math.max(this.xMax - this.xMin, this.yMax - this.yMin) * 0.1;
+
+        if (closestDistance < threshold && closestIndex !== this.hoveredLine) {
+            this.hoveredLine = closestIndex;
+            this.render();
+        } else if (closestDistance >= threshold && this.hoveredLine !== null) {
+            this.hoveredLine = null;
+            this.render();
+        }
+    }
+
     hideTooltip() {
         this.tooltip.classList.remove('visible');
     }
@@ -777,55 +914,66 @@ class ParallelAxesVisualizer {
         explanationEl.textContent = func.description;
     }
 
-    // Draw density indicators on Y axis - red for high density, green for low density
-    drawDensityIndicators() {
+    // Draw density visualization on Y axis
+    // Density = count of points within ±vicinity of each Y position
+    // Color: cyan (low density/high slope) to pink (high density/low slope)
+    drawDensityOnYAxis() {
         if (this.dataPoints.length < 2) return;
 
         const ctx = this.ctx;
-        const yAxisX = this.getYAxisX();
+        const yAxisY = this.getYAxisY();
+        const left = this.padding.left;
+        const right = this.width - this.padding.right;
+        const vicinity = this.densityVicinity;
 
-        // Calculate density: how many Y values fall into each bucket
-        const numBuckets = 50;
-        const buckets = new Array(numBuckets).fill(0);
-        const yRange = this.yMax - this.yMin;
+        // Get valid Y values
+        const yValues = this.dataPoints
+            .filter(p => !p.outOfRange)
+            .map(p => p.y);
 
-        // Count points in each bucket
-        for (const point of this.dataPoints) {
-            if (!point.outOfRange) {
-                const bucketIndex = Math.floor(((point.y - this.yMin) / yRange) * (numBuckets - 1));
-                const clampedIndex = Math.max(0, Math.min(numBuckets - 1, bucketIndex));
-                buckets[clampedIndex]++;
-            }
+        if (yValues.length === 0) return;
+
+        // Calculate density for each position along the Y axis
+        const numSamples = 100;
+        const densities = [];
+        let maxDensity = 0;
+
+        for (let i = 0; i < numSamples; i++) {
+            const yValue = this.yMin + (i / (numSamples - 1)) * (this.yMax - this.yMin);
+
+            // Count how many Y values are within ±vicinity
+            const count = yValues.filter(y => Math.abs(y - yValue) <= vicinity).length;
+            densities.push({ yValue, count, x: this.yToCanvas(yValue) });
+            maxDensity = Math.max(maxDensity, count);
         }
 
-        // Find max density for normalization
-        const maxDensity = Math.max(...buckets, 1);
+        if (maxDensity === 0) return;
 
-        // Draw density bars on Y axis
-        const bucketHeight = (this.height - this.padding.top - this.padding.bottom) / numBuckets;
+        // Draw density bars on Y axis (which is now horizontal at top)
+        const barHeight = 8;
 
-        for (let i = 0; i < numBuckets; i++) {
-            const density = buckets[i] / maxDensity;
-            const y = this.height - this.padding.bottom - (i + 0.5) * bucketHeight;
+        for (const { x, count } of densities) {
+            const normalizedDensity = count / maxDensity;
 
-            // Color: red for high density (low slope), green for low density (high slope)
-            const r = Math.floor(255 * density);
-            const g = Math.floor(255 * (1 - density));
-            const color = `rgba(${r}, ${g}, 50, 0.8)`;
+            // Color gradient: cyan (low density) -> pink (high density)
+            // This matches the line colors
+            const color = this.interpolateColor('#06b6d4', '#f472b6', normalizedDensity);
 
-            // Draw density indicator bar
-            const barWidth = 8 + density * 12; // Variable width based on density
+            // Variable bar height based on density
+            const height = 3 + normalizedDensity * 12;
+
             ctx.fillStyle = color;
-            ctx.fillRect(yAxisX + 5, y - bucketHeight / 2, barWidth, bucketHeight - 1);
+            ctx.globalAlpha = 0.8;
+            ctx.fillRect(x - 2, yAxisY - height - 3, 4, height);
         }
 
-        // Add legend
-        ctx.font = '10px Inter, sans-serif';
-        ctx.fillStyle = '#ef4444';
-        ctx.textAlign = 'left';
-        ctx.fillText('■ High density (low slope)', yAxisX + 25, this.padding.top + 15);
-        ctx.fillStyle = '#22c55e';
-        ctx.fillText('■ Low density (high slope)', yAxisX + 25, this.padding.top + 30);
+        ctx.globalAlpha = 1;
+
+        // Add insight label
+        ctx.font = '9px Inter, sans-serif';
+        ctx.fillStyle = '#a0a0b0';
+        ctx.textAlign = 'right';
+        ctx.fillText(`Density ±${vicinity.toFixed(1)} | High = flat slope (GD converges here)`, right, yAxisY - 20);
     }
 
     // Render Cartesian (orthogonal) coordinate system
