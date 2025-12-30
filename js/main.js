@@ -5,9 +5,13 @@
 
 class ParallelAxesVisualizer {
     constructor() {
-        // Canvas setup
+        // Canvas setup - Parallel Axes
         this.canvas = document.getElementById('parallelCanvas');
         this.ctx = this.canvas.getContext('2d');
+
+        // Canvas setup - Cartesian
+        this.cartesianCanvas = document.getElementById('cartesianCanvas');
+        this.cartesianCtx = this.cartesianCanvas.getContext('2d');
 
         // State
         this.currentFunction = 'linear';
@@ -25,9 +29,10 @@ class ParallelAxesVisualizer {
         this.showGrid = true;
         this.showPoints = true;
         this.continuousMode = false;
+        this.ySquash = 0; // 0 = Y matches X range, 100 = Y auto-fits to function range
 
         // Layout
-        this.padding = { top: 60, bottom: 60, left: 100, right: 100 };
+        this.padding = { top: 60, bottom: 60, left: 80, right: 80 };
         this.axisGap = 0; // Will be calculated
 
         // Hover state
@@ -54,6 +59,7 @@ class ParallelAxesVisualizer {
     }
 
     setupCanvas() {
+        // Setup Parallel Canvas
         const container = this.canvas.parentElement;
         const dpr = window.devicePixelRatio || 1;
 
@@ -66,6 +72,19 @@ class ParallelAxesVisualizer {
 
         this.width = container.clientWidth;
         this.height = container.clientHeight;
+
+        // Setup Cartesian Canvas
+        const cartContainer = this.cartesianCanvas.parentElement;
+        this.cartesianCanvas.width = cartContainer.clientWidth * dpr;
+        this.cartesianCanvas.height = cartContainer.clientHeight * dpr;
+        this.cartesianCanvas.style.width = cartContainer.clientWidth + 'px';
+        this.cartesianCanvas.style.height = cartContainer.clientHeight + 'px';
+
+        this.cartesianCtx.scale(dpr, dpr);
+
+        this.cartWidth = cartContainer.clientWidth;
+        this.cartHeight = cartContainer.clientHeight;
+
 
         // Calculate axis gap (distance between X and Y axes)
         this.axisGap = this.width - this.padding.left - this.padding.right;
@@ -108,6 +127,20 @@ class ParallelAxesVisualizer {
             this.calculateDataPoints();
             this.render();
         });
+
+        // Y Squash toggle button
+        const ySquashBtn = document.getElementById('ySquashBtn');
+        if (ySquashBtn) {
+            ySquashBtn.addEventListener('click', () => {
+                this.ySquash = this.ySquash === 0 ? 100 : 0;
+                ySquashBtn.classList.toggle('active', this.ySquash === 100);
+                ySquashBtn.innerHTML = this.ySquash === 100
+                    ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg> Y Fitted'
+                    : '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13"/></svg> Fit Y to All Values';
+                this.calculateDataPoints();
+                this.render();
+            });
+        }
 
         // Animation controls
         document.getElementById('playBtn').addEventListener('click', () => this.toggleAnimation());
@@ -200,47 +233,69 @@ class ParallelAxesVisualizer {
 
         this.dataPoints = [];
 
-        // For continuous mode: sample at every pixel of the axis height
+        // For continuous mode: sample at MULTIPLE points per pixel for true solid appearance
         // This creates truly continuous lines with no gaps
         let actualNumPoints;
         if (this.continuousMode) {
             // Get the height of the drawable area in pixels
             const axisHeight = this.height - this.padding.top - this.padding.bottom;
-            // Sample at least one point per pixel, making it truly continuous
-            actualNumPoints = Math.max(axisHeight, 500);
+            // Sample 3x points per pixel for guaranteed solid coverage
+            actualNumPoints = Math.max(axisHeight * 3, 1500);
         } else {
             actualNumPoints = this.numPoints;
         }
 
         const step = (this.xMax - this.xMin) / (actualNumPoints - 1);
 
+        // First pass: calculate all Y values and find actual min/max
+        let actualYMin = Infinity;
+        let actualYMax = -Infinity;
+        const rawPoints = [];
+
         for (let i = 0; i < actualNumPoints; i++) {
             const x = this.xMin + i * step;
             const y = func.evaluate(x, this.params);
 
             if (!isNaN(y) && isFinite(y)) {
-                // Check if Y is out of range
-                const outOfRange = y < this.xMin || y > this.xMax;
-                this.dataPoints.push({ x, y, index: i, outOfRange });
+                rawPoints.push({ x, y, index: i });
+                actualYMin = Math.min(actualYMin, y);
+                actualYMax = Math.max(actualYMax, y);
             }
         }
 
-        // IMPORTANT: Use same range for Y as X to see true picture
-        this.yMin = this.xMin;
-        this.yMax = this.xMax;
+        // Calculate Y range based on squash setting (0 or 100%)
+        if (this.ySquash === 100) {
+            // SYMMETRIC Y range: balanced around 0
+            // Find the maximum absolute value needed to fit all y values
+            const maxAbsY = Math.max(Math.abs(actualYMin), Math.abs(actualYMax));
+            // Symmetric range from -max to +max (no padding)
+            this.yMin = -maxAbsY;
+            this.yMax = maxAbsY;
+        } else {
+            // Base range: Y matches X range (1:1 scale)
+            this.yMin = this.xMin;
+            this.yMax = this.xMax;
+        }
+
+        // Second pass: determine if points are out of range with the new Y limits
+        for (const point of rawPoints) {
+            const outOfRange = point.y < this.yMin || point.y > this.yMax;
+            this.dataPoints.push({ ...point, outOfRange });
+        }
     }
 
     // Convert data coordinates to canvas coordinates
+    // HORIZONTAL LAYOUT: X axis at bottom, Y axis at top
     xToCanvas(x) {
-        // X axis is on the left - INVERTED so top = positive (max), bottom = negative (min)
+        // X axis is at bottom - maps x value to horizontal position
         const t = (x - this.xMin) / (this.xMax - this.xMin);
-        return this.height - this.padding.bottom - t * (this.height - this.padding.top - this.padding.bottom);
+        return this.padding.left + t * (this.width - this.padding.left - this.padding.right);
     }
 
     yToCanvas(y) {
-        // Y axis is on the right - SAME orientation as X axis (top = max, bottom = min)
+        // Y axis is at top - maps y value to horizontal position
         const t = (y - this.yMin) / (this.yMax - this.yMin);
-        return this.height - this.padding.bottom - t * (this.height - this.padding.top - this.padding.bottom);
+        return this.padding.left + t * (this.width - this.padding.left - this.padding.right);
     }
 
     // Clamp Y to visible range for drawing
@@ -249,14 +304,14 @@ class ParallelAxesVisualizer {
         return this.yToCanvas(clampedY);
     }
 
-    // Get X position of left axis (X-axis)
-    getXAxisX() {
-        return this.padding.left;
+    // Get Y position of bottom axis (X-axis)
+    getXAxisY() {
+        return this.height - this.padding.bottom;
     }
 
-    // Get X position of right axis (Y-axis)
-    getYAxisX() {
-        return this.width - this.padding.right;
+    // Get Y position of top axis (Y-axis)
+    getYAxisY() {
+        return this.padding.top;
     }
 
     render() {
@@ -277,6 +332,9 @@ class ParallelAxesVisualizer {
         if (this.showPoints) {
             this.drawDataPoints();
         }
+
+        // Render Cartesian view
+        this.renderCartesian();
     }
 
     drawGrid() {
@@ -284,58 +342,58 @@ class ParallelAxesVisualizer {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
         ctx.lineWidth = 1;
 
-        // Horizontal grid lines
-        const numHLines = 10;
-        for (let i = 0; i <= numHLines; i++) {
-            const y = this.padding.top + (i / numHLines) * (this.height - this.padding.top - this.padding.bottom);
+        // Vertical grid lines
+        const numVLines = 10;
+        for (let i = 0; i <= numVLines; i++) {
+            const x = this.padding.left + (i / numVLines) * (this.width - this.padding.left - this.padding.right);
             ctx.beginPath();
-            ctx.moveTo(this.padding.left, y);
-            ctx.lineTo(this.width - this.padding.right, y);
+            ctx.moveTo(x, this.padding.top);
+            ctx.lineTo(x, this.height - this.padding.bottom);
             ctx.stroke();
         }
     }
 
     drawAxes() {
         const ctx = this.ctx;
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
-        const top = this.padding.top;
-        const bottom = this.height - this.padding.bottom;
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
+        const left = this.padding.left;
+        const right = this.width - this.padding.right;
 
-        // Create gradients for axes
-        const xGrad = ctx.createLinearGradient(xAxisX, top, xAxisX, bottom);
+        // Create gradients for axes (horizontal)
+        const xGrad = ctx.createLinearGradient(left, xAxisY, right, xAxisY);
         xGrad.addColorStop(0, '#06b6d4');
         xGrad.addColorStop(1, '#8b5cf6');
 
-        const yGrad = ctx.createLinearGradient(yAxisX, top, yAxisX, bottom);
+        const yGrad = ctx.createLinearGradient(left, yAxisY, right, yAxisY);
         yGrad.addColorStop(0, '#f472b6');
         yGrad.addColorStop(1, '#fb923c');
 
-        // Draw X axis (left)
+        // Draw X axis (bottom)
         ctx.strokeStyle = xGrad;
         ctx.lineWidth = 3;
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(xAxisX, top);
-        ctx.lineTo(xAxisX, bottom);
+        ctx.moveTo(left, xAxisY);
+        ctx.lineTo(right, xAxisY);
         ctx.stroke();
 
-        // Draw Y axis (right)
+        // Draw Y axis (top)
         ctx.strokeStyle = yGrad;
         ctx.beginPath();
-        ctx.moveTo(yAxisX, top);
-        ctx.lineTo(yAxisX, bottom);
+        ctx.moveTo(left, yAxisY);
+        ctx.lineTo(right, yAxisY);
         ctx.stroke();
 
         // Draw axis labels
         ctx.font = '600 14px Inter, sans-serif';
-        ctx.textAlign = 'center';
+        ctx.textAlign = 'left';
 
         ctx.fillStyle = '#06b6d4';
-        ctx.fillText('X', xAxisX, top - 25);
+        ctx.fillText('X axis', left, xAxisY + 25);
 
         ctx.fillStyle = '#f472b6';
-        ctx.fillText('Y', yAxisX, top - 25);
+        ctx.fillText('Y axis', left, yAxisY - 10);
 
         // Draw tick marks and values
         this.drawAxisTicks();
@@ -343,52 +401,52 @@ class ParallelAxesVisualizer {
 
     drawAxisTicks() {
         const ctx = this.ctx;
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
-        const tickLength = 8;
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
+        const tickLength = 6;
 
-        ctx.font = '400 11px JetBrains Mono, monospace';
+        ctx.font = '400 10px JetBrains Mono, monospace';
         ctx.lineWidth = 1;
 
-        // X-axis ticks (shows x values)
+        // X-axis ticks (bottom axis)
         const numXTicks = 5;
         for (let i = 0; i <= numXTicks; i++) {
             const value = this.xMin + (i / numXTicks) * (this.xMax - this.xMin);
-            const y = this.xToCanvas(value);
+            const x = this.xToCanvas(value);
 
             ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
             ctx.beginPath();
-            ctx.moveTo(xAxisX - tickLength, y);
-            ctx.lineTo(xAxisX, y);
+            ctx.moveTo(x, xAxisY);
+            ctx.lineTo(x, xAxisY + tickLength);
             ctx.stroke();
 
             ctx.fillStyle = '#a0a0b0';
-            ctx.textAlign = 'right';
-            ctx.fillText(value.toFixed(1), xAxisX - tickLength - 5, y + 4);
+            ctx.textAlign = 'center';
+            ctx.fillText(value.toFixed(1), x, xAxisY + tickLength + 12);
         }
 
-        // Y-axis ticks (shows y values)
+        // Y-axis ticks (top axis)
         const numYTicks = 5;
         for (let i = 0; i <= numYTicks; i++) {
             const value = this.yMin + (i / numYTicks) * (this.yMax - this.yMin);
-            const y = this.yToCanvas(value);
+            const x = this.yToCanvas(value);
 
             ctx.strokeStyle = 'rgba(244, 114, 182, 0.5)';
             ctx.beginPath();
-            ctx.moveTo(yAxisX, y);
-            ctx.lineTo(yAxisX + tickLength, y);
+            ctx.moveTo(x, yAxisY);
+            ctx.lineTo(x, yAxisY - tickLength);
             ctx.stroke();
 
             ctx.fillStyle = '#a0a0b0';
-            ctx.textAlign = 'left';
-            ctx.fillText(value.toFixed(1), yAxisX + tickLength + 5, y + 4);
+            ctx.textAlign = 'center';
+            ctx.fillText(value.toFixed(1), x, yAxisY - tickLength - 5);
         }
     }
 
     drawFunctionLines() {
         const ctx = this.ctx;
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
 
         // Determine how many lines to draw based on animation
         const linesToDraw = this.isAnimating
@@ -406,8 +464,8 @@ class ParallelAxesVisualizer {
 
     drawContinuousLines(linesToDraw) {
         const ctx = this.ctx;
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
 
         // In continuous mode, we draw individual lines at every pixel
         // This creates a truly continuous appearance
@@ -419,22 +477,23 @@ class ParallelAxesVisualizer {
 
         for (let i = 0; i < linesToDraw; i++) {
             const point = this.dataPoints[i];
-            const xCanvasY = this.xToCanvas(point.x);
+            const xCanvasX = this.xToCanvas(point.x);
 
             // Skip out-of-range points (draw red marker later)
             if (point.outOfRange) {
                 continue;
             }
 
-            const yCanvasY = this.yToCanvas(point.y);
+            const yCanvasX = this.yToCanvas(point.y);
 
             // Color based on position for gradient effect
             const t = i / (this.dataPoints.length - 1);
             ctx.strokeStyle = this.interpolateColor('#06b6d4', '#f472b6', t);
 
+            // Draw vertical line from X axis (bottom) to Y axis (top)
             ctx.beginPath();
-            ctx.moveTo(xAxisX, xCanvasY);
-            ctx.lineTo(yAxisX, yCanvasY);
+            ctx.moveTo(xCanvasX, xAxisY);
+            ctx.lineTo(yCanvasX, yAxisY);
             ctx.stroke();
         }
 
@@ -445,9 +504,9 @@ class ParallelAxesVisualizer {
         for (let i = 0; i < linesToDraw; i++) {
             const point = this.dataPoints[i];
             if (point.outOfRange) {
-                const xCanvasY = this.xToCanvas(point.x);
+                const xCanvasX = this.xToCanvas(point.x);
                 ctx.beginPath();
-                ctx.arc(xAxisX, xCanvasY, 2, 0, Math.PI * 2);
+                ctx.arc(xCanvasX, xAxisY, 2, 0, Math.PI * 2);
                 ctx.fill();
             }
         }
@@ -455,19 +514,19 @@ class ParallelAxesVisualizer {
 
     drawDiscreteLines(linesToDraw) {
         const ctx = this.ctx;
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
 
         for (let i = 0; i < linesToDraw; i++) {
             const point = this.dataPoints[i];
-            const xCanvasY = this.xToCanvas(point.x);
+            const xCanvasX = this.xToCanvas(point.x);
 
             // Skip drawing line for out-of-range points (they get red marker in drawDataPoints)
             if (point.outOfRange) {
                 continue;
             }
 
-            const yCanvasY = this.yToCanvas(point.y);
+            const yCanvasX = this.yToCanvas(point.y);
 
             // Calculate line color based on mode
             let color;
@@ -475,7 +534,7 @@ class ParallelAxesVisualizer {
                 const t = i / (this.dataPoints.length - 1);
                 color = this.interpolateColor('#06b6d4', '#f472b6', t);
             } else if (this.lineColorMode === 'slope') {
-                const slope = (yCanvasY - xCanvasY) / (yAxisX - xAxisX);
+                const slope = (yCanvasX - xCanvasX) / (yAxisY - xAxisY);
                 const normalizedSlope = (slope + 1) / 2;
                 color = this.interpolateColor('#22c55e', '#ef4444', Math.max(0, Math.min(1, normalizedSlope)));
             } else {
@@ -491,9 +550,10 @@ class ParallelAxesVisualizer {
             ctx.lineWidth = lineWidth;
             ctx.lineCap = 'round';
 
+            // Draw vertical line from X axis (bottom) to Y axis (top)
             ctx.beginPath();
-            ctx.moveTo(xAxisX, xCanvasY);
-            ctx.lineTo(yAxisX, yCanvasY);
+            ctx.moveTo(xCanvasX, xAxisY);
+            ctx.lineTo(yCanvasX, yAxisY);
             ctx.stroke();
         }
 
@@ -502,27 +562,27 @@ class ParallelAxesVisualizer {
 
     drawDataPoints() {
         const ctx = this.ctx;
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
         const pointRadius = 4;
 
         const linesToDraw = this.isAnimating
             ? Math.floor(this.animationProgress * this.dataPoints.length)
             : this.dataPoints.length;
 
-        // Skip drawing individual points in continuous mode (red dots handled in drawFilledShape)
+        // Skip drawing individual points in continuous mode (too many)
         if (this.continuousMode) return;
 
         for (let i = 0; i < linesToDraw; i++) {
             const point = this.dataPoints[i];
-            const xCanvasY = this.xToCanvas(point.x);
+            const xCanvasX = this.xToCanvas(point.x);
 
             const isHovered = this.hoveredLine === i;
             const radius = isHovered ? pointRadius + 2 : pointRadius;
 
-            // Point on X axis - RED if out of range
+            // Point on X axis (bottom) - RED if out of range
             ctx.beginPath();
-            ctx.arc(xAxisX, xCanvasY, radius, 0, Math.PI * 2);
+            ctx.arc(xCanvasX, xAxisY, radius, 0, Math.PI * 2);
             if (point.outOfRange) {
                 ctx.fillStyle = '#ef4444'; // Red for out of range
             } else {
@@ -530,11 +590,11 @@ class ParallelAxesVisualizer {
             }
             ctx.fill();
 
-            // Point on Y axis - ONLY draw if in range
+            // Point on Y axis (top) - ONLY draw if in range
             if (!point.outOfRange) {
-                const yCanvasY = this.yToCanvas(point.y);
+                const yCanvasX = this.yToCanvas(point.y);
                 ctx.beginPath();
-                ctx.arc(yAxisX, yCanvasY, radius, 0, Math.PI * 2);
+                ctx.arc(yCanvasX, yAxisY, radius, 0, Math.PI * 2);
                 ctx.fillStyle = isHovered ? '#f472b6' : 'rgba(244, 114, 182, 0.8)';
                 ctx.fill();
             }
@@ -563,8 +623,8 @@ class ParallelAxesVisualizer {
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
-        const xAxisX = this.getXAxisX();
-        const yAxisX = this.getYAxisX();
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
 
         // Find closest line
         let closestIndex = -1;
@@ -572,14 +632,14 @@ class ParallelAxesVisualizer {
 
         for (let i = 0; i < this.dataPoints.length; i++) {
             const point = this.dataPoints[i];
-            const xCanvasY = this.xToCanvas(point.x);
-            const yCanvasY = this.yToCanvas(point.y);
+            const xCanvasX = this.xToCanvas(point.x);
+            const yCanvasX = this.yToCanvas(point.y);
 
-            // Calculate distance from mouse to line
+            // Calculate distance from mouse to line (vertical line from bottom to top)
             const dist = this.pointToLineDistance(
                 mouseX, mouseY,
-                xAxisX, xCanvasY,
-                yAxisX, yCanvasY
+                xCanvasX, xAxisY,
+                yCanvasX, yAxisY
             );
 
             if (dist < closestDistance && dist < 15) {
@@ -715,6 +775,225 @@ class ParallelAxesVisualizer {
 
         formulaEl.textContent = getFormattedFormula(this.currentFunction, this.params);
         explanationEl.textContent = func.description;
+    }
+
+    // Draw density indicators on Y axis - red for high density, green for low density
+    drawDensityIndicators() {
+        if (this.dataPoints.length < 2) return;
+
+        const ctx = this.ctx;
+        const yAxisX = this.getYAxisX();
+
+        // Calculate density: how many Y values fall into each bucket
+        const numBuckets = 50;
+        const buckets = new Array(numBuckets).fill(0);
+        const yRange = this.yMax - this.yMin;
+
+        // Count points in each bucket
+        for (const point of this.dataPoints) {
+            if (!point.outOfRange) {
+                const bucketIndex = Math.floor(((point.y - this.yMin) / yRange) * (numBuckets - 1));
+                const clampedIndex = Math.max(0, Math.min(numBuckets - 1, bucketIndex));
+                buckets[clampedIndex]++;
+            }
+        }
+
+        // Find max density for normalization
+        const maxDensity = Math.max(...buckets, 1);
+
+        // Draw density bars on Y axis
+        const bucketHeight = (this.height - this.padding.top - this.padding.bottom) / numBuckets;
+
+        for (let i = 0; i < numBuckets; i++) {
+            const density = buckets[i] / maxDensity;
+            const y = this.height - this.padding.bottom - (i + 0.5) * bucketHeight;
+
+            // Color: red for high density (low slope), green for low density (high slope)
+            const r = Math.floor(255 * density);
+            const g = Math.floor(255 * (1 - density));
+            const color = `rgba(${r}, ${g}, 50, 0.8)`;
+
+            // Draw density indicator bar
+            const barWidth = 8 + density * 12; // Variable width based on density
+            ctx.fillStyle = color;
+            ctx.fillRect(yAxisX + 5, y - bucketHeight / 2, barWidth, bucketHeight - 1);
+        }
+
+        // Add legend
+        ctx.font = '10px Inter, sans-serif';
+        ctx.fillStyle = '#ef4444';
+        ctx.textAlign = 'left';
+        ctx.fillText('■ High density (low slope)', yAxisX + 25, this.padding.top + 15);
+        ctx.fillStyle = '#22c55e';
+        ctx.fillText('■ Low density (high slope)', yAxisX + 25, this.padding.top + 30);
+    }
+
+    // Render Cartesian (orthogonal) coordinate system
+    renderCartesian() {
+        const ctx = this.cartesianCtx;
+        const w = this.cartWidth;
+        const h = this.cartHeight;
+        const padding = { top: 40, bottom: 50, left: 60, right: 30 };
+
+        ctx.clearRect(0, 0, w, h);
+
+        // Draw background
+        ctx.fillStyle = 'rgba(18, 18, 26, 1)';
+        ctx.fillRect(0, 0, w, h);
+
+        const plotWidth = w - padding.left - padding.right;
+        const plotHeight = h - padding.top - padding.bottom;
+
+        // Convert data coords to Cartesian canvas coords
+        const xToCart = (x) => padding.left + ((x - this.xMin) / (this.xMax - this.xMin)) * plotWidth;
+        const yToCart = (y) => h - padding.bottom - ((y - this.yMin) / (this.yMax - this.yMin)) * plotHeight;
+
+        // Draw grid
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+
+        // Vertical grid lines
+        const numVLines = 10;
+        for (let i = 0; i <= numVLines; i++) {
+            const x = padding.left + (i / numVLines) * plotWidth;
+            ctx.beginPath();
+            ctx.moveTo(x, padding.top);
+            ctx.lineTo(x, h - padding.bottom);
+            ctx.stroke();
+        }
+
+        // Horizontal grid lines
+        const numHLines = 10;
+        for (let i = 0; i <= numHLines; i++) {
+            const y = padding.top + (i / numHLines) * plotHeight;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(w - padding.right, y);
+            ctx.stroke();
+        }
+
+        // Draw axes
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 2;
+
+        // X axis (at y = 0 if in range)
+        if (this.yMin <= 0 && this.yMax >= 0) {
+            const axisY = yToCart(0);
+            ctx.beginPath();
+            ctx.moveTo(padding.left, axisY);
+            ctx.lineTo(w - padding.right, axisY);
+            ctx.stroke();
+        }
+
+        // Y axis (at x = 0 if in range)
+        if (this.xMin <= 0 && this.xMax >= 0) {
+            const axisX = xToCart(0);
+            ctx.beginPath();
+            ctx.moveTo(axisX, padding.top);
+            ctx.lineTo(axisX, h - padding.bottom);
+            ctx.stroke();
+        }
+
+        // Draw axis labels
+        ctx.fillStyle = '#a0a0b0';
+        ctx.font = '11px Inter, sans-serif';
+        ctx.textAlign = 'center';
+
+        // X axis labels
+        for (let i = 0; i <= 4; i++) {
+            const val = this.xMin + (i / 4) * (this.xMax - this.xMin);
+            const x = xToCart(val);
+            ctx.fillText(val.toFixed(1), x, h - padding.bottom + 20);
+        }
+
+        // Y axis labels
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+            const val = this.yMin + (i / 4) * (this.yMax - this.yMin);
+            const y = yToCart(val);
+            ctx.fillText(val.toFixed(1), padding.left - 10, y + 4);
+        }
+
+        // Axis titles
+        ctx.fillStyle = '#06b6d4';
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('X', w / 2, h - 10);
+
+        ctx.save();
+        ctx.translate(15, h / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillStyle = '#f472b6';
+        ctx.fillText('Y', 0, 0);
+        ctx.restore();
+
+        // Draw function curve with gradient coloring
+        if (this.dataPoints.length > 1) {
+            const validPoints = this.dataPoints.filter(p => !p.outOfRange);
+
+            if (validPoints.length > 1) {
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                // Draw with gradient coloring
+                for (let i = 1; i < validPoints.length; i++) {
+                    const p1 = validPoints[i - 1];
+                    const p2 = validPoints[i];
+
+                    const t = i / validPoints.length;
+                    ctx.strokeStyle = this.interpolateColor('#06b6d4', '#f472b6', t);
+
+                    ctx.beginPath();
+                    ctx.moveTo(xToCart(p1.x), yToCart(p1.y));
+                    ctx.lineTo(xToCart(p2.x), yToCart(p2.y));
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Highlight hovered point from parallel axes
+        if (this.hoveredLine !== null && this.dataPoints[this.hoveredLine]) {
+            const point = this.dataPoints[this.hoveredLine];
+            const px = xToCart(point.x);
+            const py = yToCart(point.y);
+
+            // Draw crosshairs
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+
+            // Vertical line from point to X axis
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(px, h - padding.bottom);
+            ctx.stroke();
+
+            // Horizontal line from point to Y axis
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(padding.left, py);
+            ctx.stroke();
+
+            ctx.setLineDash([]);
+
+            // Draw the point
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(px, py, 6, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#f472b6';
+            ctx.beginPath();
+            ctx.arc(px, py, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Label the point
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 11px Inter, sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(`(${point.x.toFixed(2)}, ${point.y.toFixed(2)})`, px + 10, py - 10);
+        }
     }
 }
 

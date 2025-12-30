@@ -44,10 +44,23 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Canvas Area -->
-            <div class="canvas-container">
-                <canvas id="parallelCanvas"></canvas>
-                <div class="hover-tooltip" id="tooltip"></div>
+            <!-- Dual Canvas View -->
+            <div class="dual-canvas-container">
+                <!-- Parallel Axes Canvas -->
+                <div class="canvas-wrapper">
+                    <div class="canvas-label">Parallel Axes</div>
+                    <div class="canvas-container">
+                        <canvas id="parallelCanvas"></canvas>
+                        <div class="hover-tooltip" id="tooltip"></div>
+                    </div>
+                </div>
+                <!-- Cartesian Canvas -->
+                <div class="canvas-wrapper">
+                    <div class="canvas-label">Cartesian (Orthogonal)</div>
+                    <div class="canvas-container">
+                        <canvas id="cartesianCanvas"></canvas>
+                    </div>
+                </div>
             </div>
 
             <!-- Controls Panel -->
@@ -101,6 +114,14 @@
                             <span>to</span>
                             <input type="number" id="xMax" value="5" step="0.5">
                         </div>
+                    </div>
+                    <div class="control-group">
+                        <button id="ySquashBtn" class="btn btn-secondary btn-full">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M8 1v14M1 8h14M3 3l10 10M13 3L3 13" />
+                            </svg>
+                            Fit Y to All Values
+                        </button>
                     </div>
                 </div>
 
