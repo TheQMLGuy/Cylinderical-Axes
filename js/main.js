@@ -32,6 +32,14 @@ class ParallelAxesVisualizer {
         this.ySquash = 0; // 0 = Y matches X range, 100 = Y auto-fits to function range
         this.densityVicinity = 0.5; // ± range for density calculation
 
+        // Calculus options
+        this.showDerivative = false;
+        this.showIntegral = false;
+        this.derivativeData = null;  // { latex, evaluate }
+        this.integralData = null;    // { latex, evaluate }
+        this.customExpression = '';  // Current custom expression string
+        this.customExpressionValid = false;
+
         // Layout
         this.padding = { top: 60, bottom: 60, left: 80, right: 80 };
         this.axisGap = 0; // Will be calculated
@@ -42,6 +50,8 @@ class ParallelAxesVisualizer {
 
         // Data points for current function
         this.dataPoints = [];
+        this.derivativePoints = [];  // Data points for f'(x)
+        this.integralPoints = [];    // Data points for ∫f(x)dx
 
         // Initialize
         this.init();
@@ -102,7 +112,21 @@ class ParallelAxesVisualizer {
             this.currentFunction = e.target.value;
             this.loadFunctionParams();
             this.resetAnimation();
+
+            // Show/hide custom expression section
+            const customSection = document.getElementById('customExpressionSection');
+            if (this.currentFunction === 'custom') {
+                customSection.style.display = 'block';
+                // Focus the input
+                setTimeout(() => {
+                    document.getElementById('customExpressionInput').focus();
+                }, 100);
+            } else {
+                customSection.style.display = 'none';
+            }
+
             this.calculateDataPoints();
+            this.calculateCalculusPoints();
             this.render();
             this.updateDescription();
         });
@@ -219,6 +243,60 @@ class ParallelAxesVisualizer {
         // Mouse events for hover - Cartesian (bidirectional)
         this.cartesianCanvas.addEventListener('mousemove', (e) => this.handleCartesianMouseMove(e));
         this.cartesianCanvas.addEventListener('mouseleave', () => this.handleMouseLeave());
+
+        // Custom expression input
+        const customInput = document.getElementById('customExpressionInput');
+        if (customInput) {
+            // Debounce input to avoid too many updates
+            let debounceTimer;
+            customInput.addEventListener('input', (e) => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    this.handleCustomExpressionInput(e.target.value);
+                }, 150);
+            });
+
+            // Immediate update on enter
+            customInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    clearTimeout(debounceTimer);
+                    this.handleCustomExpressionInput(e.target.value);
+                }
+            });
+        }
+
+        // Expression hint buttons
+        document.querySelectorAll('.hint-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const expr = btn.dataset.expr;
+                const input = document.getElementById('customExpressionInput');
+                if (input) {
+                    input.value = expr;
+                    this.handleCustomExpressionInput(expr);
+                }
+            });
+        });
+
+        // Calculus toggles
+        const derivativeToggle = document.getElementById('showDerivative');
+        if (derivativeToggle) {
+            derivativeToggle.addEventListener('change', (e) => {
+                this.showDerivative = e.target.checked;
+                this.calculateCalculusPoints();
+                this.render();
+                this.updateCalculusFormulas();
+            });
+        }
+
+        const integralToggle = document.getElementById('showIntegral');
+        if (integralToggle) {
+            integralToggle.addEventListener('change', (e) => {
+                this.showIntegral = e.target.checked;
+                this.calculateCalculusPoints();
+                this.render();
+                this.updateCalculusFormulas();
+            });
+        }
     }
 
     loadFunctionParams() {
@@ -333,14 +411,32 @@ class ParallelAxesVisualizer {
             this.dataPoints.push({ ...point, outOfRange });
         }
 
-        // Third pass: Calculate mathematical slopes for Y-axis coloring
+        // Third pass: Calculate mathematical slopes AND detect discontinuities
         // We calculate |dy/dx| and normalize it
         let minSlope = Infinity;
         let maxSlope = 0;
 
+        // Thresholds for discontinuity detection
+        const rangeY = this.yMax - this.yMin;
+
         for (let i = 0; i < this.dataPoints.length; i++) {
             let slope = 0;
             const p = this.dataPoints[i];
+
+            // Check for discontinuity with next point
+            if (i < this.dataPoints.length - 1) {
+                const next = this.dataPoints[i + 1];
+                const deltaY = next.y - p.y;
+                const absDeltaY = Math.abs(deltaY);
+
+                // Heuristic for asymptote:
+                // If points are jumping across the viewport significantly
+                const jumpThreshold = Math.max(rangeY * 1.5, 50);
+
+                if (absDeltaY > jumpThreshold) {
+                    p.isDiscontinuous = true;
+                }
+            }
 
             // Use central difference where possible
             if (i > 0 && i < this.dataPoints.length - 1) {
@@ -408,8 +504,11 @@ class ParallelAxesVisualizer {
         // Draw axes
         this.drawAxes();
 
-        // Draw connecting lines
+        // Draw connecting lines for main function
         this.drawFunctionLines();
+
+        // Draw calculus curves (derivative and integral) on parallel axes
+        this.drawCalculusCurvesParallel();
 
         // Draw data points on top
         if (this.showPoints) {
@@ -563,7 +662,8 @@ class ParallelAxesVisualizer {
             const xCanvasX = this.xToCanvas(point.x);
 
             // Skip out-of-range points (draw red marker later)
-            if (point.outOfRange) {
+            // Also skip if this point is marked as discontinuous (start of a jump)
+            if (point.outOfRange || point.isDiscontinuous) {
                 continue;
             }
 
@@ -605,7 +705,8 @@ class ParallelAxesVisualizer {
             const xCanvasX = this.xToCanvas(point.x);
 
             // Skip drawing line for out-of-range points (they get red marker in drawDataPoints)
-            if (point.outOfRange) {
+            // Also skip if discontinuous
+            if (point.outOfRange || point.isDiscontinuous) {
                 continue;
             }
 
@@ -710,6 +811,67 @@ class ParallelAxesVisualizer {
         const b = Math.round(b1 + (b2 - b1) * t);
 
         return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    /**
+     * Draw derivative and integral curves on the parallel axes canvas
+     */
+    drawCalculusCurvesParallel() {
+        const ctx = this.ctx;
+        const xAxisY = this.getXAxisY();
+        const yAxisY = this.getYAxisY();
+
+        // Draw derivative lines (green, semi-transparent)
+        if (this.showDerivative && this.derivativePoints.length > 0) {
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.6;
+            ctx.setLineDash([4, 3]);
+            ctx.lineCap = 'round';
+
+            for (const point of this.derivativePoints) {
+                const xCanvasX = this.xToCanvas(point.x);
+
+                // Check if y is in visible range
+                if (point.y < this.yMin || point.y > this.yMax) continue;
+
+                const yCanvasX = this.yToCanvas(point.y);
+
+                ctx.beginPath();
+                ctx.moveTo(xCanvasX, xAxisY);
+                ctx.lineTo(yCanvasX, yAxisY);
+                ctx.stroke();
+            }
+
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+        }
+
+        // Draw integral lines (orange, semi-transparent)
+        if (this.showIntegral && this.integralPoints.length > 0) {
+            ctx.strokeStyle = '#fb923c';
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.6;
+            ctx.setLineDash([6, 3]);
+            ctx.lineCap = 'round';
+
+            for (const point of this.integralPoints) {
+                const xCanvasX = this.xToCanvas(point.x);
+
+                // Check if y is in visible range
+                if (point.y < this.yMin || point.y > this.yMax) continue;
+
+                const yCanvasX = this.yToCanvas(point.y);
+
+                ctx.beginPath();
+                ctx.moveTo(xCanvasX, xAxisY);
+                ctx.lineTo(yCanvasX, yAxisY);
+                ctx.stroke();
+            }
+
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+        }
     }
 
     handleMouseMove(e) {
@@ -910,8 +1072,195 @@ class ParallelAxesVisualizer {
         const formulaEl = document.getElementById('funcFormula');
         const explanationEl = document.getElementById('funcExplanation');
 
-        formulaEl.textContent = getFormattedFormula(this.currentFunction, this.params);
-        explanationEl.textContent = func.description;
+        // For custom functions, use the custom expression
+        if (this.currentFunction === 'custom' && this.customExpression) {
+            formulaEl.textContent = 'y = ' + this.customExpression;
+            explanationEl.textContent = func.description;
+        } else {
+            formulaEl.textContent = getFormattedFormula(this.currentFunction, this.params);
+            explanationEl.textContent = func.description;
+        }
+    }
+
+    /**
+     * Handle custom expression input
+     * @param {string} exprString - The user's input expression
+     */
+    handleCustomExpressionInput(exprString) {
+        const input = document.getElementById('customExpressionInput');
+        const errorEl = document.getElementById('expressionError');
+        const latexPreview = document.getElementById('latexPreview');
+
+        this.customExpression = exprString;
+
+        if (!exprString || exprString.trim() === '') {
+            // Empty input - reset to default
+            input.classList.remove('error');
+            errorEl.textContent = '';
+            latexPreview.innerHTML = '<span class="latex-content">y = x</span>';
+
+            window.customFunctionEvaluator = (x) => x;
+            this.customExpressionValid = false;
+
+            this.calculateDataPoints();
+            this.calculateCalculusPoints();
+            this.render();
+            this.updateDescription();
+            return;
+        }
+
+        // Normalize and parse the expression
+        const normalized = ExpressionParser.normalize(exprString);
+        const parsed = ExpressionParser.parse(normalized);
+
+        if (parsed.valid) {
+            // Valid expression
+            input.classList.remove('error');
+            errorEl.textContent = '';
+
+            // Render LaTeX preview using KaTeX
+            this.renderLatex(latexPreview, 'y = ' + parsed.latex);
+
+            // Set the global evaluator for the custom function
+            window.customFunctionEvaluator = parsed.evaluate;
+            this.customExpressionValid = true;
+
+            // Recalculate and render
+            this.calculateDataPoints();
+            this.calculateCalculusPoints();
+            this.render();
+            this.updateDescription();
+        } else {
+            // Invalid expression
+            input.classList.add('error');
+            errorEl.textContent = parsed.error;
+            latexPreview.innerHTML = '<span class="latex-content" style="color: #ef4444;">Invalid expression</span>';
+            this.customExpressionValid = false;
+        }
+    }
+
+    /**
+     * Render LaTeX content using KaTeX
+     * @param {HTMLElement} element - Target element
+     * @param {string} latex - LaTeX string to render
+     */
+    renderLatex(element, latex) {
+        if (typeof katex !== 'undefined') {
+            try {
+                katex.render(latex, element, {
+                    throwOnError: false,
+                    displayMode: false
+                });
+            } catch (e) {
+                element.innerHTML = `<span class="latex-content">${latex}</span>`;
+            }
+        } else {
+            // KaTeX not loaded yet, use plain text
+            element.innerHTML = `<span class="latex-content">${latex}</span>`;
+        }
+    }
+
+    /**
+     * Calculate derivative and integral data points
+     */
+    calculateCalculusPoints() {
+        this.derivativePoints = [];
+        this.integralPoints = [];
+        this.derivativeData = null;
+        this.integralData = null;
+
+        // Get the current expression string for calculus
+        let exprString = this.getCurrentExpressionString();
+        if (!exprString) return;
+
+        const numPoints = this.continuousMode ? 500 : this.numPoints;
+        const step = (this.xMax - this.xMin) / (numPoints - 1);
+
+        // Calculate derivative if enabled
+        if (this.showDerivative) {
+            this.derivativeData = ExpressionParser.derivative(exprString);
+
+            if (this.derivativeData.valid) {
+                for (let i = 0; i < numPoints; i++) {
+                    const x = this.xMin + i * step;
+                    const y = this.derivativeData.evaluate(x);
+                    if (!isNaN(y) && isFinite(y)) {
+                        this.derivativePoints.push({ x, y });
+                    }
+                }
+            }
+        }
+
+        // Calculate integral if enabled
+        if (this.showIntegral) {
+            this.integralData = ExpressionParser.integralEvaluator(exprString, this.xMin, this.xMax);
+
+            if (this.integralData.valid) {
+                for (let i = 0; i < numPoints; i++) {
+                    const x = this.xMin + i * step;
+                    const y = this.integralData.evaluate(x);
+                    if (!isNaN(y) && isFinite(y)) {
+                        this.integralPoints.push({ x, y });
+                    }
+                }
+            }
+        }
+
+        this.updateCalculusFormulas();
+    }
+
+    /**
+     * Get the current expression as a string for calculus operations
+     */
+    getCurrentExpressionString() {
+        if (this.currentFunction === 'custom') {
+            return this.customExpressionValid ? ExpressionParser.normalize(this.customExpression) : null;
+        }
+
+        // For built-in functions, return the expression string
+        const expressionMap = {
+            'linear': 'x',
+            'linearCustom': `${this.params.m || 1} * x + ${this.params.b || 0}`,
+            'quadratic': 'x^2',
+            'cubic': 'x^3',
+            'quadraticFull': `${this.params.a || 1} * x^2 + ${this.params.b || 0} * x + ${this.params.c || 0}`,
+            'sin': 'sin(x)',
+            'cos': 'cos(x)',
+            'tan': 'tan(x)',
+            'sqrt': 'sqrt(x)',
+            'abs': 'abs(x)',
+            'reciprocal': '1/x',
+            'exp': 'exp(x)',
+            'log': 'log(x)'
+        };
+
+        return expressionMap[this.currentFunction] || null;
+    }
+
+    /**
+     * Update the calculus formula displays with LaTeX
+     */
+    updateCalculusFormulas() {
+        const derivativeFormulaEl = document.getElementById('derivativeFormula');
+        const integralFormulaEl = document.getElementById('integralFormula');
+        const derivativeLatexEl = document.getElementById('derivativeLatex');
+        const integralLatexEl = document.getElementById('integralLatex');
+
+        // Show/hide derivative formula
+        if (this.showDerivative && this.derivativeData && this.derivativeData.valid) {
+            derivativeFormulaEl.style.display = 'flex';
+            this.renderLatex(derivativeLatexEl, this.derivativeData.latex);
+        } else {
+            derivativeFormulaEl.style.display = 'none';
+        }
+
+        // Show/hide integral formula
+        if (this.showIntegral && this.integralData && this.integralData.valid) {
+            integralFormulaEl.style.display = 'flex';
+            this.renderLatex(integralLatexEl, this.integralData.latex);
+        } else {
+            integralFormulaEl.style.display = 'none';
+        }
     }
 
     // Draw density visualization on Y axis
@@ -1076,28 +1425,113 @@ class ParallelAxesVisualizer {
         ctx.restore();
 
         // Draw function curve with gradient coloring
+        // Draw function curve with gradient coloring
         if (this.dataPoints.length > 1) {
-            const validPoints = this.dataPoints.filter(p => !p.outOfRange);
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
-            if (validPoints.length > 1) {
-                ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
+            // Draw all valid segments individually
+            // We use the full dataPoints array to maintain index relationships
+            // But skip outOfRange points for the actual drawing calls unless they connect to in-range points
 
-                // Draw with gradient coloring
-                for (let i = 1; i < validPoints.length; i++) {
-                    const p1 = validPoints[i - 1];
-                    const p2 = validPoints[i];
+            for (let i = 0; i < this.dataPoints.length - 1; i++) {
+                const p1 = this.dataPoints[i];
+                const p2 = this.dataPoints[i + 1];
 
-                    const t = i / validPoints.length;
-                    ctx.strokeStyle = this.interpolateColor('#06b6d4', '#f472b6', t);
+                // CRITICAL: Check for discontinuity
+                if (p1.isDiscontinuous) {
+                    continue; // Do not connect to next point (break the line)
+                }
 
-                    ctx.beginPath();
-                    ctx.moveTo(xToCart(p1.x), yToCart(p1.y));
-                    ctx.lineTo(xToCart(p2.x), yToCart(p2.y));
-                    ctx.stroke();
+                // Optimization: Don't draw if both are way out of range on the same side
+                if ((p1.y < this.yMin && p2.y < this.yMin) || (p1.y > this.yMax && p2.y > this.yMax)) {
+                    // continue; // Optional optimization
+                }
+
+                // If both are fully invalid (NaN etc), skip
+                if (isNaN(p1.y) || isNaN(p2.y)) continue;
+
+                // Color interpolation based on position
+                const t = i / (this.dataPoints.length - 1);
+                ctx.strokeStyle = this.interpolateColor('#06b6d4', '#f472b6', t);
+
+                ctx.beginPath();
+                ctx.moveTo(xToCart(p1.x), yToCart(p1.y));
+                ctx.lineTo(xToCart(p2.x), yToCart(p2.y));
+                ctx.stroke();
+            }
+        }
+
+        // Draw derivative curve (green, dashed)
+        if (this.showDerivative && this.derivativePoints.length > 1) {
+            ctx.strokeStyle = '#22c55e';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < this.derivativePoints.length; i++) {
+                const p = this.derivativePoints[i];
+                const px = xToCart(p.x);
+                const py = yToCart(p.y);
+
+                // Check if point is in visible range
+                if (py >= padding.top && py <= h - padding.bottom) {
+                    if (!started) {
+                        ctx.moveTo(px, py);
+                        started = true;
+                    } else {
+                        ctx.lineTo(px, py);
+                    }
+                } else {
+                    // Break the line if out of range
+                    if (started) {
+                        ctx.stroke();
+                        ctx.beginPath();
+                        started = false;
+                    }
                 }
             }
+            if (started) ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw integral curve (orange, dashed)
+        if (this.showIntegral && this.integralPoints.length > 1) {
+            ctx.strokeStyle = '#fb923c';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < this.integralPoints.length; i++) {
+                const p = this.integralPoints[i];
+                const px = xToCart(p.x);
+                const py = yToCart(p.y);
+
+                // Check if point is in visible range
+                if (py >= padding.top && py <= h - padding.bottom) {
+                    if (!started) {
+                        ctx.moveTo(px, py);
+                        started = true;
+                    } else {
+                        ctx.lineTo(px, py);
+                    }
+                } else {
+                    if (started) {
+                        ctx.stroke();
+                        ctx.beginPath();
+                        started = false;
+                    }
+                }
+            }
+            if (started) ctx.stroke();
+            ctx.setLineDash([]);
         }
 
         // Highlight hovered point from parallel axes

@@ -12,6 +12,11 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
+    <!-- KaTeX for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <!-- math.js for expression parsing and derivatives -->
+    <script src="https://cdn.jsdelivr.net/npm/mathjs@12.2.1/lib/browser/math.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -68,6 +73,9 @@
                 <div class="control-section">
                     <h3>Function</h3>
                     <select id="functionSelect" class="select-control">
+                        <optgroup label="Custom">
+                            <option value="custom">✏️ Custom Expression</option>
+                        </optgroup>
                         <optgroup label="Linear">
                             <option value="linear" selected>y = x</option>
                             <option value="linearCustom">y = mx + b</option>
@@ -90,6 +98,55 @@
                             <option value="log">y = ln(x)</option>
                         </optgroup>
                     </select>
+                </div>
+
+                <!-- Custom Expression Input -->
+                <div class="control-section" id="customExpressionSection" style="display: none;">
+                    <h3>Custom Expression</h3>
+                    <div class="latex-preview" id="latexPreview">
+                        <span class="latex-content">y = x</span>
+                    </div>
+                    <div class="control-group">
+                        <input type="text" id="customExpressionInput" class="expression-input"
+                            placeholder="e.g., x^2 + sin(x)" spellcheck="false" autocomplete="off">
+                        <div class="expression-error" id="expressionError"></div>
+                    </div>
+                    <div class="expression-hints">
+                        <span class="hint-label">Examples:</span>
+                        <button class="hint-btn" data-expr="x^2">x²</button>
+                        <button class="hint-btn" data-expr="sin(x)">sin</button>
+                        <button class="hint-btn" data-expr="exp(-x^2)">e^(-x²)</button>
+                        <button class="hint-btn" data-expr="x*sin(x)">x·sin</button>
+                    </div>
+                </div>
+
+                <!-- Calculus Section -->
+                <div class="control-section">
+                    <h3>Calculus</h3>
+                    <div class="control-group">
+                        <label for="showDerivative" class="calculus-toggle">
+                            <input type="checkbox" id="showDerivative">
+                            <span class="toggle-color derivative-color"></span>
+                            Show Derivative f'(x)
+                        </label>
+                    </div>
+                    <div class="control-group">
+                        <label for="showIntegral" class="calculus-toggle">
+                            <input type="checkbox" id="showIntegral">
+                            <span class="toggle-color integral-color"></span>
+                            Show Integral ∫f(x)dx
+                        </label>
+                    </div>
+                    <div class="calculus-formulas" id="calculusFormulas">
+                        <div class="calculus-formula derivative-formula" id="derivativeFormula" style="display: none;">
+                            <span class="formula-label">f'(x) =</span>
+                            <span class="formula-content" id="derivativeLatex"></span>
+                        </div>
+                        <div class="calculus-formula integral-formula" id="integralFormula" style="display: none;">
+                            <span class="formula-label">∫f(x)dx =</span>
+                            <span class="formula-content" id="integralLatex"></span>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Dynamic Parameters -->
@@ -201,6 +258,7 @@
     </div>
 
     <script src="js/functions.js"></script>
+    <script src="js/expression-parser.js"></script>
     <script src="js/main.js"></script>
 </body>
 

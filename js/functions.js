@@ -4,6 +4,25 @@
  */
 
 const MathFunctions = {
+    // ===== Custom Function (User Input) =====
+    custom: {
+        name: 'Custom',
+        formula: 'y = f(x)',
+        description: 'Enter your own mathematical expression using x as the variable',
+        params: {},
+        evaluate: (x, params) => {
+            // Delegate to global custom evaluator set by main.js
+            if (window.customFunctionEvaluator) {
+                return window.customFunctionEvaluator(x);
+            }
+            return x; // Default to y = x
+        },
+        getYRange: (xMin, xMax, params) => {
+            // Will be dynamically computed based on actual function values
+            return { yMin: -10, yMax: 10 };
+        }
+    },
+
     // ===== Linear Functions =====
     linear: {
         name: 'Linear',
@@ -13,6 +32,7 @@ const MathFunctions = {
         evaluate: (x, params) => x,
         getYRange: (xMin, xMax, params) => ({ yMin: xMin, yMax: xMax })
     },
+
 
     linearCustom: {
         name: 'Linear (Custom)',
@@ -102,9 +122,7 @@ const MathFunctions = {
         description: 'Tangent function - dramatic vertical asymptotes create striking discontinuous patterns',
         params: {},
         evaluate: (x, params) => {
-            const val = Math.tan(x);
-            // Clamp extreme values for display
-            return Math.max(-20, Math.min(20, val));
+            return Math.tan(x);
         },
         getYRange: (xMin, xMax, params) => ({ yMin: -10, yMax: 10 })
     },
@@ -140,9 +158,8 @@ const MathFunctions = {
         description: 'Reciprocal function - hyperbolic pattern with asymptote at x = 0',
         params: {},
         evaluate: (x, params) => {
-            if (Math.abs(x) < 0.01) return NaN;
-            const val = 1 / x;
-            return Math.max(-20, Math.min(20, val));
+            if (x === 0) return NaN;
+            return 1 / x;
         },
         getYRange: (xMin, xMax, params) => ({ yMin: -10, yMax: 10 })
     },

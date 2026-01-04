@@ -422,6 +422,177 @@ input[type="checkbox"] {
     flex: none;
 }
 
+/* ===== Custom Expression Input ===== */
+.expression-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.expression-input:focus {
+    outline: none;
+    border-color: var(--accent-purple);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+}
+
+.expression-input::placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.expression-input.error {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+}
+
+.expression-error {
+    color: #ef4444;
+    font-size: 0.75rem;
+    margin-top: 0.4rem;
+    min-height: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.expression-error::before {
+    content: '⚠';
+}
+
+.expression-error:empty {
+    display: none;
+}
+
+.expression-error:empty::before {
+    content: none;
+}
+
+/* LaTeX Preview */
+.latex-preview {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(6, 182, 212, 0.1));
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+    min-height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow-x: auto;
+}
+
+.latex-preview .latex-content {
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.latex-preview .katex {
+    font-size: 1.2rem;
+}
+
+/* Expression Hints */
+.expression-hints {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+
+.hint-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.hint-btn {
+    padding: 0.25rem 0.5rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.hint-btn:hover {
+    background: var(--accent-purple);
+    color: white;
+    border-color: var(--accent-purple);
+}
+
+/* ===== Calculus Section ===== */
+.calculus-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.toggle-color {
+    width: 12px;
+    height: 3px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.derivative-color {
+    background: var(--accent-green);
+}
+
+.integral-color {
+    background: var(--accent-orange);
+}
+
+.calculus-formulas {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.calculus-formula {
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    overflow-x: auto;
+}
+
+.derivative-formula {
+    background: rgba(34, 197, 94, 0.1);
+    border-left: 3px solid var(--accent-green);
+}
+
+.integral-formula {
+    background: rgba(251, 146, 60, 0.1);
+    border-left: 3px solid var(--accent-orange);
+}
+
+.formula-label {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+}
+
+.formula-content {
+    color: var(--text-primary);
+}
+
+.formula-content .katex {
+    font-size: 0.95rem;
+}
+
 /* ===== Info Panel ===== */
 .info-panel {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(6, 182, 212, 0.1));
